@@ -168,52 +168,56 @@ session_bar=""
 
 # Try to get token data from session files
 if [ -n "$session_id" ] && [ "$HAS_JQ" -eq 1 ]; then
-  project_dir=$(echo "$current_dir" | sed "s|~|$HOME|g" | sed 's|/|-|g' | sed 's|^-||')
-  session_file="$HOME/.claude/projects/-${project_dir}/${session_id}.jsonl"
+  project_dir=$(echo "$current_dir" | sed "s|~|$HOME|g" | sed 's|/|-|g' | sed 's|_|-|g' | sed 's|\.|-|g')
+  session_file="$HOME/.claude/projects/${project_dir}/${session_id}.jsonl"
   
   if [ -f "$session_file" ]; then
-    # Get latest token counts
-    latest_entry=$(tail -20 "$session_file" | jq -c 'select(.message.usage)' 2>/dev/null | tail -1)
+    # Calculate total tokens from entire session
+    input_total=0
+    output_total=0
+    cache_total=0
     
-    if [ -n "$latest_entry" ]; then
-      input_tokens=$(echo "$latest_entry" | jq -r '.message.usage.input_tokens // 0')
-      output_tokens=$(echo "$latest_entry" | jq -r '.message.usage.output_tokens // 0')
-      cache_tokens=$(echo "$latest_entry" | jq -r '.message.usage.cache_read_input_tokens // 0')
+    # Use faster approach with grep and jq
+    # Extract all input tokens and sum them
+    input_total=$(grep '"usage"' "$session_file" | jq -r '.message.usage.input_tokens // 0' 2>/dev/null | awk '{sum += $1} END {print sum}')
+    output_total=$(grep '"usage"' "$session_file" | jq -r '.message.usage.output_tokens // 0' 2>/dev/null | awk '{sum += $1} END {print sum}')
+    cache_total=$(grep '"usage"' "$session_file" | jq -r '.message.usage.cache_read_input_tokens // 0' 2>/dev/null | awk '{sum += $1} END {print sum}')
+    
+    # Default to 0 if awk returns empty
+    [ -z "$input_total" ] && input_total=0
+    [ -z "$output_total" ] && output_total=0
+    [ -z "$cache_total" ] && cache_total=0
+    
+    # Calculate session total
+    session_total=$(( input_total + output_total + cache_total ))
+    
+    if [ "$session_total" -gt 0 ]; then
+      # Always use session total as it's the most current data
+      TOTAL_TOKENS=$session_total
+      tot_tokens=$session_total
       
-      # Calculate total tokens for this check
-      current_total=$(( input_tokens + output_tokens + cache_tokens ))
+      # Update state file
+      sed -i.bak "s/^TOTAL_TOKENS=.*/TOTAL_TOKENS=$TOTAL_TOKENS/" "$USAGE_STATE_FILE"
+      rm -f "${USAGE_STATE_FILE}.bak"
       
-      # Update total if increased
-      if [ "$current_total" -gt "$TOTAL_TOKENS" ]; then
-        TOTAL_TOKENS=$current_total
-        tot_tokens=$TOTAL_TOKENS
-        
-        # Update state file
-        sed -i.bak "s/^TOTAL_TOKENS=.*/TOTAL_TOKENS=$TOTAL_TOKENS/" "$USAGE_STATE_FILE"
-        rm -f "${USAGE_STATE_FILE}.bak"
-      fi
-      
-      # Calculate burn rate (tokens per minute)
-      time_diff=$(( CURRENT_TIME - LAST_CHECK_TIME ))
-      if [ "$time_diff" -gt 0 ]; then
-        token_diff=$(( TOTAL_TOKENS - ${PREV_TOKENS:-0} ))
-        if [ "$token_diff" -gt 0 ]; then
-          tpm=$(( token_diff * 60 / time_diff ))
+      # Calculate burn rate based on session file age
+      if [ -f "$session_file" ]; then
+        session_start_time=$(stat -f%B "$session_file" 2>/dev/null || stat -c%Y "$session_file" 2>/dev/null)
+        if [ -n "$session_start_time" ]; then
+          duration_minutes=$(( (CURRENT_TIME - session_start_time) / 60 ))
+          if [ "$duration_minutes" -gt 0 ]; then
+            tpm=$(( tot_tokens / duration_minutes ))
+          fi
         fi
       fi
-      
-      # Update last check time
-      LAST_CHECK_TIME=$CURRENT_TIME
-      sed -i.bak "s/^LAST_CHECK_TIME=.*/LAST_CHECK_TIME=$LAST_CHECK_TIME/" "$USAGE_STATE_FILE"
-      rm -f "${USAGE_STATE_FILE}.bak"
     fi
   fi
 fi
 
 # Alternative: Estimate from all recent session files if no session_id
 if [ "$tot_tokens" -eq 0 ] && [ "$HAS_JQ" -eq 1 ]; then
-  project_dir=$(echo "$current_dir" | sed "s|~|$HOME|g" | sed 's|/|-|g' | sed 's|^-||')
-  project_session_dir="$HOME/.claude/projects/-${project_dir}"
+  project_dir=$(echo "$current_dir" | sed "s|~|$HOME|g" | sed 's|/|-|g' | sed 's|_|-|g' | sed 's|\.|-|g')
+  project_session_dir="$HOME/.claude/projects/${project_dir}"
   
   if [ -d "$project_session_dir" ]; then
     # Sum tokens from recent sessions (last 24 hours)
@@ -286,8 +290,8 @@ context_remaining_pct=75
 
 # Try to get actual context usage from session
 if [ -n "$session_id" ] && [ "$HAS_JQ" -eq 1 ]; then
-  project_dir=$(echo "$current_dir" | sed "s|~|$HOME|g" | sed 's|/|-|g' | sed 's|^-||')
-  session_file="$HOME/.claude/projects/-${project_dir}/${session_id}.jsonl"
+  project_dir=$(echo "$current_dir" | sed "s|~|$HOME|g" | sed 's|/|-|g' | sed 's|_|-|g' | sed 's|\.|-|g')
+  session_file="$HOME/.claude/projects/${project_dir}/${session_id}.jsonl"
   
   if [ -f "$session_file" ]; then
     actual_context_tokens=$(tail -20 "$session_file" | jq -r 'select(.message.usage) | .message.usage | ((.input_tokens // 0) + (.cache_read_input_tokens // 0))' 2>/dev/null | tail -1)
@@ -330,18 +334,53 @@ else
   ctx_color() { if [ "$use_color" -eq 1 ]; then printf '\033[38;5;158m'; fi; }
 fi
 
-# ---- Cost estimation ----
+# ---- Cost estimation with timeframe ----
 cost_display=""
 if [ "$tot_tokens" -gt 0 ]; then
   # Estimate cost (Sonnet 4: ~$3 input, ~$15 output per 1M tokens)
-  # Conservative estimate using $3/1M for input only
   millions=$(( tot_tokens / 1000000 ))
   if [ "$millions" -eq 0 ]; then
-    cost_display="💰 ~\$<1"
+    fractional_cost=$(( tot_tokens * 3 / 1000000 ))
+    if [ "$fractional_cost" -eq 0 ]; then
+      estimated_cost=1
+    else
+      estimated_cost=$fractional_cost
+    fi
   else
     estimated_cost=$(( millions * 3 ))
-    cost_display="💰 ~\$${estimated_cost}"
   fi
+  
+  # Calculate project timeframe from session files
+  timeframe_display=""
+  if [ -n "$session_id" ] && [ "$HAS_JQ" -eq 1 ] && [ -f "$session_file" ]; then
+    project_session_dir=$(dirname "$session_file")
+    if [ -d "$project_session_dir" ]; then
+      # Find oldest session file
+      oldest_file=$(ls -t "$project_session_dir"/*.jsonl 2>/dev/null | tail -1)
+      if [ -f "$oldest_file" ]; then
+        oldest_time=$(stat -f%B "$oldest_file" 2>/dev/null || stat -c%Y "$oldest_file" 2>/dev/null)
+        current_time=$(date +%s)
+        if [ -n "$oldest_time" ]; then
+          age_days=$(( (current_time - oldest_time) / 86400 ))
+          age_hours=$(( ((current_time - oldest_time) % 86400) / 3600 ))
+          
+          if [ "$age_days" -gt 0 ]; then
+            timeframe_display="/${age_days}d"
+          elif [ "$age_hours" -gt 0 ]; then
+            timeframe_display="/${age_hours}h"
+          else
+            timeframe_display="/today"
+          fi
+        fi
+      fi
+    fi
+  fi
+  
+  cost_display="💰 ~\$${estimated_cost}${timeframe_display}"
+  
+  
+else
+  cost_display="💰 \$0 (initializing)"
 fi
 
 # ---- Resource zone calculation ----
@@ -425,7 +464,16 @@ fi
 
 # Line 3: Token analytics
 if [ "$tot_tokens" -gt 0 ]; then
-  printf '\n📊 %s%d tok' "$(usage_color)" "$tot_tokens"
+  # Format tokens for display (K/M notation for large numbers)
+  if [ "$tot_tokens" -gt 1000000 ]; then
+    tok_display="$(( tot_tokens / 1000000 ))M"
+  elif [ "$tot_tokens" -gt 1000 ]; then
+    tok_display="$(( tot_tokens / 1000 ))K"
+  else
+    tok_display="$tot_tokens"
+  fi
+  
+  printf '\n📊 %s%s tok' "$(usage_color)" "$tok_display"
   [ "$tpm" -gt 0 ] && printf ' (%d/min)' "$tpm"
   printf '%s • 🧠 %sContext: %s%s' "$(rst)" "$(ctx_color)" "$context_display" "$(rst)"
   [ -n "$cost_display" ] && printf ' • %s' "$cost_display"
