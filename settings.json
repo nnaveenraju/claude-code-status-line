@@ -1,0 +1,83 @@
+{
+  "statusLine": {
+    "type": "command",
+    "command": "~/.claude/statusline.sh",
+    "padding": 0,
+    "logFile": "~/.claude/statusline.log",
+    "description": "Intelligent resource monitoring statusline with real-time API limits, token usage, and recommendations"
+  },
+  "statusLineFeatures": {
+    "apiLimitTracking": true,
+    "tokenBurnRate": true,
+    "costEstimation": true,
+    "contextWindowMonitoring": true,
+    "resourceZones": true,
+    "intelligentRecommendations": true,
+    "projectAwareness": false,
+    "standalone": true
+  },
+  "statusLineRequirements": {
+    "required": [
+      "bash",
+      "jq (command-line JSON processor)"
+    ],
+    "optional": [
+      "bc (for advanced calculations)"
+    ],
+    "removed": [
+      "ccusage (no longer needed - built-in tracking)"
+    ]
+  },
+  "resourceZones": {
+    "green": {
+      "range": "0-60%",
+      "color": "green",
+      "description": "Full speed execution"
+    },
+    "yellow": {
+      "range": "60-75%",
+      "color": "yellow", 
+      "description": "Resource optimization active"
+    },
+    "orange": {
+      "range": "75-85%",
+      "color": "orange",
+      "description": "Conservative mode"
+    },
+    "red": {
+      "range": "85-95%",
+      "color": "red",
+      "description": "Emergency efficiency"
+    },
+    "critical": {
+      "range": "95-100%",
+      "color": "blinking red",
+      "description": "Stop imminent"
+    }
+  },
+  "installation": {
+    "steps": [
+      "1. Download statusline.sh to ~/.claude/",
+      "2. Make it executable: chmod +x ~/.claude/statusline.sh", 
+      "3. Add the statusLine configuration to your Claude Code settings.json",
+      "4. Restart Claude Code to activate the intelligent statusline"
+    ],
+    "verification": "Run: echo '{}' | ~/.claude/statusline.sh"
+  },
+  "version": "2.0.0-standalone",
+  "author": "NeuralSuperClaude Community",
+  "license": "MIT",
+  "blog": {
+    "title": "Intelligent Claude Code Statusline: Real-Time Resource Monitoring",
+    "features": [
+      "🎯 Real-time API limit tracking with percentage remaining",
+      "📊 Token usage and burn rate monitoring", 
+      "💰 Cost estimation for current session",
+      "🧠 Context window utilization tracking",
+      "🚨 Smart recommendations based on current conditions",
+      "🌈 Color-coded resource zone indicators",
+      "⚡ Zero external dependencies (except jq)",
+      "🔄 Built-in usage tracking (no ccusage required)"
+    ]
+  }
+}
