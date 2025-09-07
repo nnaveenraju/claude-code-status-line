@@ -196,6 +196,11 @@ echo "⌛ ${hrs}h ${mins}m until reset (${pct}%) [${bar}]"
 echo "📊 ${total} tok • ${zone} • 💡 ${advice}"
 ```
 
+## Setup / Install steps
+
+For detailed, step-by-step instructions (macOS/Linux/WSL) and troubleshooting, see **[setup.md in the repo](https://github.com/nnaveenraju/claude-code-status-line/blob/main/setup.md)**.
+
+
 ---
 
 ## Final Thought
