@@ -1,4 +1,3 @@
-```markdown
 # Claude Code… Status Line Metrics
 
 ## Building a Smarter Claude Code Statusline (With Costs and Suggestions)
