@@ -370,4 +370,4 @@ Sometimes the cleanest fix isn’t “one more tool” — it’s using what you
 
 ---
 
-*Made with ❤️ and too many Claude tokens by Naveen*
+*Made with ❤️ and Claude by Naveen*
